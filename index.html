@@ -195,6 +195,15 @@
             />
           </div>
 
+          <div>
+            <label class="block text-sm font-medium text-gray-600 mb-2">Date & Time</label>
+            <input 
+              type="datetime-local" 
+              id="transactionDate" 
+              class="w-full p-4 border border-gray-200 rounded-xl bg-white/70 input-focus"
+            />
+          </div>
+
           <button 
             onclick="addEntry()" 
             class="w-full btn-primary text-white py-4 rounded-xl font-medium"
@@ -347,6 +356,12 @@
                     minute: '2-digit' 
                   })}
                 </div>
+                <button 
+                  onclick="editEntry(${entries.length - 1 - index})" 
+                  class="text-xs text-blue-500 hover:text-blue-700 mt-1"
+                >
+                  Edit
+                </button>
               </div>
             </div>
           `;
@@ -361,6 +376,7 @@
         const amount = parseFloat(document.getElementById("amount").value);
         const type = document.getElementById("type").value;
         const description = document.getElementById("description").value.trim();
+        const transactionDate = document.getElementById("transactionDate").value;
         
         if (isNaN(amount) || amount <= 0) {
           showNotification("Please enter a valid amount", "error");
@@ -372,16 +388,20 @@
           return;
         }
 
+        // Use custom date if provided, otherwise use current time
+        const timestamp = transactionDate ? new Date(transactionDate).toISOString() : new Date().toISOString();
+
         const previousBalance = currentBalance;
         const newBalance = type === "income" ? previousBalance + amount : previousBalance - amount;
 
         const entry = { 
+          id: Date.now() + Math.random(), // Unique ID for editing
           previousBalance, 
           amount, 
           type, 
           newBalance, 
           description,
-          timestamp: new Date().toISOString()
+          timestamp
         };
         
         entries.push(entry);
@@ -390,12 +410,120 @@
         // Clear inputs
         document.getElementById("amount").value = "";
         document.getElementById("description").value = "";
+        document.getElementById("transactionDate").value = "";
         
         // Update UI
         updateBalanceDisplay();
         renderLog();
         
         showNotification(`Transaction added successfully!`, "success");
+      }
+
+      let editingIndex = -1;
+
+      function editEntry(index) {
+        editingIndex = index;
+        const entry = entries[index];
+        
+        // Fill the form with existing data
+        document.getElementById("amount").value = entry.amount;
+        document.getElementById("type").value = entry.type;
+        document.getElementById("description").value = entry.description;
+        
+        // Convert timestamp to datetime-local format
+        const date = new Date(entry.timestamp);
+        const localISOTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        document.getElementById("transactionDate").value = localISOTime;
+        
+        // Change button text
+        const addButton = document.querySelector('button[onclick="addEntry()"]');
+        addButton.textContent = "Update Transaction";
+        addButton.onclick = updateEntry;
+        
+        // Scroll to form
+        document.getElementById("amount").scrollIntoView({ behavior: 'smooth' });
+        document.getElementById("amount").focus();
+        
+        showNotification("Edit mode activated", "success");
+      }
+
+      function updateEntry() {
+        const amount = parseFloat(document.getElementById("amount").value);
+        const type = document.getElementById("type").value;
+        const description = document.getElementById("description").value.trim();
+        const transactionDate = document.getElementById("transactionDate").value;
+        
+        if (isNaN(amount) || amount <= 0) {
+          showNotification("Please enter a valid amount", "error");
+          return;
+        }
+        
+        if (!description) {
+          showNotification("Please add a description", "error");
+          return;
+        }
+
+        if (!transactionDate) {
+          showNotification("Please select a date and time", "error");
+          return;
+        }
+
+        // Update the entry
+        entries[editingIndex] = {
+          ...entries[editingIndex],
+          amount,
+          type,
+          description,
+          timestamp: new Date(transactionDate).toISOString()
+        };
+        
+        // Recalculate all balances from the edited entry onwards
+        recalculateBalances();
+        
+        // Reset form
+        cancelEdit();
+        
+        showNotification("Transaction updated successfully!", "success");
+      }
+
+      function cancelEdit() {
+        editingIndex = -1;
+        
+        // Clear inputs
+        document.getElementById("amount").value = "";
+        document.getElementById("type").value = "expense";
+        document.getElementById("description").value = "";
+        document.getElementById("transactionDate").value = "";
+        
+        // Reset button
+        const addButton = document.querySelector('button[onclick="updateEntry()"]') || document.querySelector('button[onclick="addEntry()"]');
+        addButton.textContent = "Add Transaction";
+        addButton.onclick = addEntry;
+        
+        // Update UI
+        updateBalanceDisplay();
+        renderLog();
+      }
+
+      function recalculateBalances() {
+        let runningBalance = startBalance;
+        
+        // Sort entries by timestamp to ensure correct order
+        entries.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        
+        // Recalculate all balances
+        entries.forEach((entry, index) => {
+          entry.previousBalance = runningBalance;
+          entry.newBalance = entry.type === "income" ? runningBalance + entry.amount : runningBalance - entry.amount;
+          runningBalance = entry.newBalance;
+        });
+        
+        // Update current balance
+        currentBalance = runningBalance;
+        
+        // Update UI
+        updateBalanceDisplay();
+        renderLog();
       }
 
       function resetBalance() {
@@ -475,12 +603,51 @@
       updateBalanceDisplay();
       renderLog();
       
+      // Set current date/time as default
+      const now = new Date();
+      const localISOTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      document.getElementById("transactionDate").value = localISOTime;
+      
       // Add enter key support
       document.addEventListener('keypress', function(e) {
         if (e.key === 'Enter' && (e.target.id === 'amount' || e.target.id === 'description')) {
-          addEntry();
+          if (editingIndex >= 0) {
+            updateEntry();
+          } else {
+            addEntry();
+          }
+        }
+      });
+
+      // Add escape key to cancel edit
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && editingIndex >= 0) {
+          cancelEdit();
         }
       });
     </script>
+
+    <!-- Add this to the script section for persistence -->
+<script>
+// Add these functions for localStorage support
+function saveData() {
+  localStorage.setItem('money_entries', JSON.stringify(entries));
+  localStorage.setItem('starting_balance', startBalance.toString());
+  localStorage.setItem('current_balance', currentBalance.toString());
+}
+
+function loadData() {
+  const savedEntries = localStorage.getItem('money_entries');
+  const savedStartBalance = localStorage.getItem('starting_balance');
+  const savedCurrentBalance = localStorage.getItem('current_balance');
+  
+  if (savedEntries) entries = JSON.parse(savedEntries);
+  if (savedStartBalance) startBalance = parseFloat(savedStartBalance);
+  if (savedCurrentBalance) currentBalance = parseFloat(savedCurrentBalance);
+}
+
+// Call saveData() after every transaction
+// Call loadData() on page load
+</script>
   </body>
 </html>
